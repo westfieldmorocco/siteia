@@ -1,5 +1,8 @@
 import { chunkText } from './textExtractor.js';
 import promptManager from './promptManager.js';
+import ragService from './ragService.js';
+import contractService from './contractService.js';
+import { optionalAuth } from '../middleware/auth.js';
 
 let OpenAI;
 
@@ -15,7 +18,7 @@ async function getOpenAI() {
 /**
  * Analyze contract using OpenAI GPT with custom prompt
  */
-export async function analyzeContract(contractText) {
+export async function analyzeContract(contractText, file = null, userId = null) {
   console.log('=== DÉBUT ANALYSE OPENAI AVEC PROMPT PERSONNALISÉ ===');
   
   try {
@@ -40,6 +43,11 @@ export async function analyzeContract(contractText) {
 
     console.log('Client OpenAI initialisé');
 
+    // Enrichissement du prompt avec RAG
+    console.log('Enrichissement du prompt avec RAG...');
+    const systemPrompt = promptManager.getSystemPrompt();
+    const enrichedSystemPrompt = await ragService.enrichPromptWithRAG(contractText, systemPrompt);
+    
     // Découpage du texte si nécessaire
     const chunks = chunkText(contractText, 3500);
     console.log(`Texte découpé en ${chunks.length} chunk(s)`);
@@ -66,7 +74,8 @@ export async function analyzeContract(contractText) {
           openai, 
           chunks[i], 
           i === 0, 
-          contractContext
+          contractContext,
+          enrichedSystemPrompt
         );
         console.log(`Chunk ${i + 1} analysé avec succès`);
         
@@ -112,6 +121,18 @@ export async function analyzeContract(contractText) {
     if (!fullAnalysis.overallScore) fullAnalysis.overallScore = 5;
     if (!fullAnalysis.summary) fullAnalysis.summary = 'Analyse complétée avec le prompt personnalisé.';
 
+    // Sauvegarde du contrat et des résultats si utilisateur connecté
+    if (userId && file) {
+      try {
+        console.log('Sauvegarde du contrat pour l\'utilisateur:', userId);
+        await contractService.saveContract(userId, file, fullAnalysis);
+        console.log('Contrat sauvegardé avec succès');
+      } catch (saveError) {
+        console.error('Erreur sauvegarde contrat:', saveError);
+        // Continue l'analyse même si la sauvegarde échoue
+      }
+    }
+
     console.log('=== ANALYSE TERMINÉE AVEC PROMPT PERSONNALISÉ ===');
     console.log('Type de contrat:', fullAnalysis.contractType);
     console.log('Score:', fullAnalysis.overallScore);
@@ -148,12 +169,12 @@ export async function analyzeContract(contractText) {
 /**
  * Analyze a single chunk using custom prompt
  */
-async function analyzeChunkWithCustomPrompt(openai, text, isFirstChunk = false, contractContext = '') {
+async function analyzeChunkWithCustomPrompt(openai, text, isFirstChunk = false, contractContext = '', customSystemPrompt = null) {
   try {
     console.log('Utilisation du prompt personnalisé pour l\'analyse...');
     
     // Récupération des prompts personnalisés
-    const systemPrompt = promptManager.getSystemPrompt();
+    const systemPrompt = customSystemPrompt || promptManager.getSystemPrompt();
     const userPrompt = promptManager.generateUserPrompt(text, isFirstChunk, contractContext);
     const openaiConfig = promptManager.getOpenAIConfig();
 

@@ -1,0 +1,24 @@
+# Dossier pour les documents juridiques à embedder
+
+Placez ici vos documents :
+- Contrats types marocains (.pdf, .docx, .txt)
+- Lois marocaines (.pdf, .docx, .txt)
+- Réglementations (.pdf, .docx, .txt)
+
+Structure recommandée :
+```
+contracts_laws/
+├── contrats/
+│   ├── contrat_travail_type.pdf
+│   ├── contrat_commercial_modele.docx
+│   └── ...
+├── lois/
+│   ├── code_obligations_contrats.pdf
+│   ├── code_travail_maroc.pdf
+│   └── ...
+└── reglements/
+    ├── decret_xyz.pdf
+    └── ...
+```
+
+Puis lancez : `python scripts/embed_documents.py --directory ./data/contracts_laws`

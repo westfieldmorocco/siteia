@@ -3,138 +3,231 @@ import cors from 'cors';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import path from 'path';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import { analyzeContract } from './services/contractAnalyzer.js';
+
 import { extractTextFromFile } from './services/textExtractor.js';
+import { analyzeContract } from './services/contractAnalyzer.js';
 import promptRoutes from './routes/promptRoutes.js';
+import authRoutes from './routes/authRoutes.js';
+import contractRoutes from './routes/contractRoutes.js';
+import ragService from './services/ragService.js';
+import { authenticateToken, optionalAuth, requireAdmin } from './middleware/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-dotenv.config({ path: join(__dirname, '../.env') });
+const __dirname = path.dirname(__filename);
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: 'Trop de requêtes, veuillez réessayer plus tard.'
-});
+// Configuration CORS
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://contract-analyzer-frontend.vercel.app', 'https://contract-analyzer-frontend-git-main-your-username.vercel.app']
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-app.use(cors());
+// Middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use('/api/', limiter);
 
-app.use('/api/prompt', promptRoutes);
-
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  fileFilter: (req, file, cb) => {
-    const allowed = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    ];
-    allowed.includes(file.mimetype)
-      ? cb(null, true)
-      : cb(new Error('Fichier non supporté. PDF, DOC, DOCX uniquement.'));
-  }
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limite chaque IP Ã  100 requÃªtes par windowMs
+  message: 'Trop de requÃªtes depuis cette IP, veuillez rÃ©essayer plus tard.',
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
-// ?? Endpoint d'analyse de contrat
-app.post('/api/analyze-contract', upload.single('contract'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Aucun fichier fourni', success: false });
-    }
+app.use(limiter);
 
-    if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({ error: 'Clé API manquante', success: false });
-    }
-
-    const extractedText = await extractTextFromFile(req.file); // Utilise bien req.file.buffer
-    if (!extractedText || extractedText.trim().length === 0) {
-      return res.status(400).json({ error: 'Texte vide ou corrompu', success: false });
-    }
-
-    const analysis = await analyzeContract(extractedText);
-    if (!analysis) {
-      return res.status(500).json({ error: 'Analyse échouée', success: false });
-    }
-
-    res.json({
-      success: true,
-      fileName: req.file.originalname,
-      fileSize: req.file.size,
-      analysis,
-      timestamp: new Date().toISOString(),
-      promptVersion: analysis.promptVersion || 'custom'
-    });
-
-  } catch (error) {
-    console.error('Erreur analyse:', error);
-    res.status(500).json({ error: error.message, success: false });
-  }
-});
-
-// Health Check
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
+// Route de test
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    message: 'API Contract Analyzer fonctionne!',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    environment: process.env.NODE_ENV || 'development',
-    openaiConfigured: !!process.env.OPENAI_API_KEY,
-    promptSystem: 'active'
+    env: process.env.NODE_ENV || 'development'
   });
 });
 
-// Test OpenAI
-app.get('/api/test-openai', async (req, res) => {
-  try {
-    if (!process.env.OPENAI_API_KEY)
-      return res.status(500).json({ error: 'Clé API OpenAI non configurée', configured: false });
+// Routes pour la gestion des prompts
+app.use('/api/prompt', promptRoutes);
 
-    const { default: OpenAI } = await import('openai');
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Routes d'authentification
+app.use('/api/auth', authRoutes);
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [{ role: 'user', content: "Réponds 'OK'." }],
-      max_tokens: 10
-    });
+// Routes de gestion des contrats
+app.use('/api/contracts', contractRoutes);
 
-    res.json({
-      status: 'OpenAI connecté',
-      configured: true,
-      response: completion.choices[0].message.content
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Erreur OpenAI', details: error.message });
-  }
-});
-
-// Gestion des erreurs
-app.use((error, req, res, next) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'Fichier trop volumineux. Max 10MB', success: false });
+// Configuration multer pour l'upload de fichiers
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain'
+    ];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Type de fichier non supportÃ©. Utilisez PDF, DOC, DOCX ou TXT.'));
     }
   }
-  res.status(500).json({ error: error.message || 'Erreur serveur', success: false });
 });
 
-// 404
+// Route d'analyse de contrat
+app.post('/api/analyze-contract', optionalAuth, upload.single('contract'), async (req, res) => {
+  console.log('=== NOUVELLE DEMANDE D\'ANALYSE ===');
+  
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'Aucun fichier fourni'
+      });
+    }
+
+    console.log('Fichier reÃ§u:', {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size
+    });
+
+    // Extraction du texte
+    console.log('DÃ©but extraction du texte...');
+    const contractText = await extractTextFromFile(req.file);
+    console.log('Extraction du texte terminÃ©e, longueur:', contractText.length);
+
+    // Analyse avec OpenAI
+    const analysis = await analyzeContract(contractText, req.file, req.userId);
+    
+    console.log('=== ANALYSE TERMINÃ‰E AVEC SUCCÃˆS ===');
+    
+    res.json({
+      success: true,
+      data: analysis
+    });
+
+  } catch (error) {
+    console.error('=== ERREUR LORS DE L\'ANALYSE ===');
+    console.error('Type d\'erreur:', error.constructor.name);
+    console.error('Message:', error.message);
+    console.error('Stack:', error.stack);
+    
+    // Gestion spÃ©cifique des erreurs
+    if (error.message.includes('Type de fichier non supportÃ©')) {
+      return res.status(400).json({
+        success: false,
+        error: error.message
+      });
+    }
+    
+    if (error.message.includes('API key')) {
+      return res.status(500).json({
+        success: false,
+        error: 'Erreur de configuration du service d\'analyse'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: 'Erreur lors de l\'analyse du contrat: ' + error.message
+    });
+  }
+});
+
+// Route pour les statistiques RAG (admin)
+app.get('/api/rag/stats', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const stats = await ragService.getVectorStoreStats();
+    
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    console.error('Erreur stats RAG:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erreur lors de la rÃ©cupÃ©ration des statistiques RAG'
+    });
+  }
+});
+
+// Route pour tester la recherche RAG (admin)
+app.post('/api/rag/search', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { query, options = {} } = req.body;
+    
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        error: 'RequÃªte de recherche manquante'
+      });
+    }
+    
+    const results = await ragService.searchSimilarDocuments(query, options);
+    
+    res.json({
+      success: true,
+      data: {
+        query,
+        results,
+        count: results.length
+      }
+    });
+  } catch (error) {
+    console.error('Erreur recherche RAG:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Erreur lors de la recherche RAG'
+    });
+  }
+});
+
+// Gestion des erreurs globales
+app.use((error, req, res, next) => {
+  console.error('Erreur serveur:', error);
+  
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        error: 'Fichier trop volumineux (max 10MB)'
+      });
+    }
+  }
+  
+  res.status(500).json({
+    success: false,
+    error: 'Erreur interne du serveur'
+  });
+});
+
+// Route 404
 app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Route non trouvée', success: false });
+  res.status(404).json({
+    success: false,
+    error: 'Route non trouvÃ©e'
+  });
 });
 
-// ?? Démarrage serveur
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`? Serveur lancé sur http://localhost:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`ğŸš€ Serveur dÃ©marrÃ© sur le port ${PORT}`);
+  console.log(`ğŸ“ Mode: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`ğŸ”— URL: http://localhost:${PORT}`);
 });
+
+export default app;

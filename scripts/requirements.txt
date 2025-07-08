@@ -1,0 +1,7 @@
+# Requirements pour le script d'embedding
+openai>=1.0.0
+supabase>=2.0.0
+PyPDF2>=3.0.0
+python-docx>=1.0.0
+tiktoken>=0.5.0
+python-dotenv>=1.0.0

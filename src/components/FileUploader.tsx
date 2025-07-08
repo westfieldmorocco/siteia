@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Upload, File, CheckCircle, XCircle, Loader, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 interface UploadedFile {
   name: string;
@@ -18,6 +19,7 @@ const FileUploader: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const { token } = useAuth();
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes';
@@ -44,10 +46,17 @@ const FileUploader: React.FC = () => {
       const formData = new FormData();
       formData.append('contract', file.file!);
 
+      // Ajout du token d'authentification si disponible
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       console.log('Sending request to /api/analyze-contract');
 
       const response = await fetch('/api/analyze-contract', {
         method: 'POST',
+        headers,
         body: formData,
       });
 
