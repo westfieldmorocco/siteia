@@ -79,9 +79,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         throw new Error('Token invalide');
       }
 
+      const textResponse = await response.text();
       let data;
       try {
-        data = await response.json();
+        data = JSON.parse(textResponse);
       } catch (jsonError) {
         // Si on ne peut pas parser le JSON, on considère le token comme invalide
         throw new Error('Token invalide');
@@ -108,11 +109,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         body: JSON.stringify({ email, password })
       });
 
+      const textResponse = await response.text();
       let data;
       try {
-        data = await response.json();
+        data = JSON.parse(textResponse);
       } catch (jsonError) {
-        const textResponse = await response.text();
         throw new Error(`Erreur de connexion au serveur. Réponse: ${textResponse || 'Aucune réponse'}`);
       }
 
@@ -145,11 +146,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         body: JSON.stringify(userData)
       });
 
+      const textResponse = await response.text();
       let data;
       try {
-        data = await response.json();
+        data = JSON.parse(textResponse);
       } catch (jsonError) {
-        const textResponse = await response.text();
         throw new Error(`Erreur de connexion au serveur. Réponse: ${textResponse || 'Aucune réponse'}`);
       }
 
@@ -194,11 +195,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         body: JSON.stringify(profileData)
       });
 
+      const textResponse = await response.text();
       let data;
       try {
-        data = await response.json();
+        data = JSON.parse(textResponse);
       } catch (jsonError) {
-        const textResponse = await response.text();
         throw new Error(`Erreur de connexion au serveur. Réponse: ${textResponse || 'Aucune réponse'}`);
       }
 
