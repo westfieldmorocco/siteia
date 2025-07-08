@@ -79,7 +79,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         throw new Error('Token invalide');
       }
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        // Si on ne peut pas parser le JSON, on considère le token comme invalide
+        throw new Error('Token invalide');
+      }
+      
       if (data.success) {
         setUser(data.data.user);
       } else {
@@ -101,7 +108,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         body: JSON.stringify({ email, password })
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        const textResponse = await response.text();
+        throw new Error(`Erreur de connexion au serveur. Réponse: ${textResponse || 'Aucune réponse'}`);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || 'Erreur de connexion');
@@ -132,7 +145,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         body: JSON.stringify(userData)
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        const textResponse = await response.text();
+        throw new Error(`Erreur de connexion au serveur. Réponse: ${textResponse || 'Aucune réponse'}`);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || 'Erreur lors de l\'inscription');
@@ -175,7 +194,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         body: JSON.stringify(profileData)
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        const textResponse = await response.text();
+        throw new Error(`Erreur de connexion au serveur. Réponse: ${textResponse || 'Aucune réponse'}`);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || 'Erreur mise à jour profil');
